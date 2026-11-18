@@ -1,4 +1,4 @@
-"""CI sanity checks on what the student committed (run by the eval-gate job).
+"""CI sanity checks on what the team committed (run by the eval-gate job).
 
     python -m lab9.ci_check --pr reports/eval_pr.json --baseline reports/baseline_v1.json --spec config/metric_spec.yaml
 

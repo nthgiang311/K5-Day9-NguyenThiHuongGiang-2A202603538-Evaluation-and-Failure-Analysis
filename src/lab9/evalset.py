@@ -28,6 +28,16 @@ REQUIRED = ("item_id", "claim_id", "failure_modes", "provenance", "split", "eval
 
 
 FM_CODE = re.compile(r"FM-\d{2}")
+# Item-level coverage tags are fixed to the public matrix anchors. They describe
+# which known failure mechanisms each claim is useful for evaluating; labels remain separate.
+FAILURE_MODES = {
+    "C-001": ["FM-03"], "C-002": ["FM-03"], "C-003": ["FM-04", "FM-05"],
+    "C-004": ["FM-02"], "C-005": ["FM-01", "FM-09"], "C-006": ["FM-06"],
+    "C-007": ["FM-02"], "C-008": ["FM-04", "FM-05", "FM-08"],
+    "C-009": ["FM-02", "FM-03"], "C-010": ["FM-01", "FM-09"],
+    "C-011": ["FM-07"], "C-012": ["FM-07"], "C-013": ["FM-02"],
+    "C-014": ["FM-04", "FM-05", "FM-08"],
+}
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -46,10 +56,15 @@ def build(source: Path = SOURCE) -> tuple[int, int]:
         items.append({
             "item_id": item_id,
             "claim_id": claim["claim_id"],
-            # TODO M1: replace [] with the FM-xx codes from your taxonomy that this item exercises.
-            "failure_modes": [],
+            "failure_modes": FAILURE_MODES.get(claim["claim_id"], []),
             "provenance": {"source": "lab8_public", "matrix_id": claim.get("matrix_id"),
-                           "from_trace": None, "generator": None,
+                           "from_trace": {"C-002": "swarm/C-002@55:model_override",
+                                          "C-006": "swarm/C-006@11:quote",
+                                          "C-007": "swarm/C-007@11:quote+denied",
+                                          "C-008": "swarm/C-008@11:quote+ledger",
+                                          "C-011": "swarm/C-011@11:ledger",
+                                          "C-014": "swarm/C-014@11:quote+ledger"}.get(claim["claim_id"]),
+                           "generator": None,
                            "label_by": "lab8_matrix", "checked_by": None},
             "split": "regression",
             "eval_set_version": VERSION,
@@ -73,6 +88,17 @@ def slices_for(expected: dict[str, Any], adversarial: bool) -> list[str]:
     if adversarial:
         tags.append("adversarial")
     return tags
+
+
+def adversarial_mode_counts(items: list[dict[str, Any]]) -> dict[str, int]:
+    """Count coverage only among adversarial items; v1 controls cannot pad M5 coverage."""
+    counts: dict[str, int] = {}
+    for item in items:
+        if item.get("split") != "adversarial":
+            continue
+        for fm in item.get("failure_modes") or []:
+            counts[fm] = counts.get(fm, 0) + 1
+    return counts
 
 
 def build_v2(items_v1: Path = ITEMS, labels_v1: Path = LABELS, pack: Path = PACK,
@@ -144,13 +170,9 @@ def check(items_path: Path = ITEMS, labels_path: Path = LABELS) -> list[str]:
                      for it in items if it.get("split") == "adversarial" and it.get("claim_id") not in want_adv]
     if v2:
         # The >= 3 rule applies to every mode the adversarial split exercises.
-        attacked = {fm for it in items if it.get("split") == "adversarial" for fm in it.get("failure_modes") or []}
-        count: dict[str, int] = {}
-        for item in items:
-            for fm in item.get("failure_modes") or []:
-                count[fm] = count.get(fm, 0) + 1
-        problems += [f"{fm}: only {c} item(s) in v2, need >= {MIN_PER_MODE_V2}"
-                     for fm, c in sorted(count.items()) if fm in attacked and c < MIN_PER_MODE_V2]
+        count = adversarial_mode_counts(items)
+        problems += [f"{fm}: only {c} adversarial item(s), need >= {MIN_PER_MODE_V2}"
+                     for fm, c in sorted(count.items()) if c < MIN_PER_MODE_V2]
     return problems
 
 
